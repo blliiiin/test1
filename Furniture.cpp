@@ -52,7 +52,7 @@ void Furniture::read() {
     std::string typeValue = input::text("Тип мебели: ");
     double heightValue = input::number<double>("Высота (cm): ");
     double widthValue = input::number<double>("Ширина (cm): ");
-    double depthValue = input::number<double>("Высота (cm): ");
+    double depthValue = input::number<double>("Глубина (cm): ");
     std::string colorValue = input::text("Цвет: ");
     std::string materialValue = input::text("Материал: ");
     double costValue = input::number<double>("Стоимость в рублях: ");
@@ -62,9 +62,9 @@ void Furniture::read() {
 void Furniture::print(std::ostream& out) const {
     out << "МЕбель\n";
     out << "Тип мебели: " << type_ << "\n";
-    out << "Длина (cm): " << height_ << "\n";
-    out << "Ширина (cm): " << width_ << "\n";
-    out << "Высота (cm): " << depth_ << "\n";
+    out << "Высота (см): " << height_ << "\n";
+    out << "Ширина (см): " << width_ << "\n";
+    out << "Глубина (см): " << depth_ << "\n";
     out << "Цвет: " << color_ << "\n";
     out << "Материал: " << material_ << "\n";
     out << "Стоимость в рублях: " << cost_ << "\n";
@@ -81,7 +81,7 @@ void Furniture::load(std::istream& in) {
     std::string materialValue;
     double costValue = 0;
     if (!(in >> std::quoted(typeValue) >> heightValue >> widthValue >> depthValue >> std::quoted(colorValue) >> std::quoted(materialValue) >> costValue))
-        throw std::runtime_error("Неверная запись бро");
+        throw std::runtime_error("Неверная запись");
     Furniture valid(typeValue, heightValue, widthValue, depthValue, colorValue, materialValue, costValue);
     *this = valid;
 }

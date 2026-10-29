@@ -12,17 +12,17 @@
 #include <memory>
 #include <utility>
 #include <stdexcept>
+#include <sstream>
+#include <iomanip>
+#include <cmath>
 
 Keeper::Keeper() {
-    std::cout << "[Keeper @ " << this
-        << "] Конструктор без параметров\n";
+    std::cout << "Keeper: конструктор без параметров.\n";
 }
 
 Keeper::Keeper(const Factory& first) {
     add(first);
-
-    std::cout << "[Keeper @ " << this
-        << "] Конструктор с параметром\n";
+    std::cout << "Keeper: конструктор с параметрами.\n";
 }
 
 Keeper::Keeper(const Keeper& other) {
@@ -36,8 +36,7 @@ Keeper::Keeper(const Keeper& other) {
         throw;
     }
 
-    std::cout << "[Keeper @ " << this
-        << "] Конструктор копирования\n";
+    std::cout << "Keeper: конструктор копирования.\n";
 }
 
 Keeper& Keeper::operator=(const Keeper& other) {
@@ -51,9 +50,7 @@ Keeper& Keeper::operator=(const Keeper& other) {
 
 Keeper::~Keeper() {
     clear();
-
-    std::cout << "[Keeper @ " << this
-        << "] Деструктор\n";
+    std::cout << "Keeper: деструктор.\n";
 }
 
 void Keeper::swap(Keeper& other) noexcept {
@@ -82,10 +79,18 @@ Keeper::Node* Keeper::nodeAt(int index) const {
 }
 
 void Keeper::add(const Factory& item) {
-    std::unique_ptr<Factory> copy(item.clone());
+    addOwned(std::unique_ptr<Factory>(item.clone()));
+}
 
-    Node* node = new Node{ copy.get(), nullptr };
-    copy.release();
+void Keeper::addOwned(std::unique_ptr<Factory> item) {
+    if (!item) {
+        throw std::invalid_argument(
+            "Нельзя добавить пустой объект."
+        );
+    }
+
+    Node* node = new Node{ item.get(), nullptr };
+    item.release();
 
     if (!head_) {
         head_ = node;
@@ -159,6 +164,47 @@ void Keeper::print(std::ostream& out) const {
     }
 }
 
+// Вспомогательные функции чтения из файла.
+namespace {
+    std::string readField(std::istream& in) {
+        std::string value;
+
+        if (!std::getline(in, value)) {
+            throw std::runtime_error(
+                "В файле не хватает данных объекта."
+            );
+        }
+
+        // Удаляем служебный символ переноса строки Windows.
+        if (!value.empty() && value.back() == '\r') {
+            value.pop_back();
+        }
+
+        return value;
+    }
+
+    double readNumber(std::istream& in) {
+        std::istringstream line(readField(in));
+        double value = 0;
+
+        if (!(line >> value) || !std::isfinite(value)) {
+            throw std::runtime_error(
+                "В файле вместо числа указано неверное значение."
+            );
+        }
+
+        line >> std::ws;
+
+        if (!line.eof()) {
+            throw std::runtime_error(
+                "После числа в файле есть лишние символы."
+            );
+        }
+
+        return value;
+    }
+}
+
 void Keeper::save(const std::string& path) const {
     std::ofstream out(path);
 
@@ -168,12 +214,46 @@ void Keeper::save(const std::string& path) const {
         );
     }
 
-    out << "FACTORY_LAB6_V1\n";
-    out << size_ << '\n';
+    out << std::setprecision(17);
 
     for (Node* node = head_; node; node = node->next) {
-        out << node->item->kind() << '\n';
-        node->item->save(out);
+        const Factory& object = *node->item;
+
+        if (const Furniture* item =
+            dynamic_cast<const Furniture*>(&object)) {
+
+            out << "Furniture\n"
+                << item->getType() << '\n'
+                << item->getHeight() << '\n'
+                << item->getWidth() << '\n'
+                << item->getDepth() << '\n'
+                << item->getColor() << '\n'
+                << item->getMaterial() << '\n'
+                << item->getCost() << '\n';
+        }
+        else if (const Worker* item =
+            dynamic_cast<const Worker*>(&object)) {
+
+            out << "Worker\n"
+                << item->getFullName() << '\n'
+                << item->getPosition() << '\n'
+                << item->getSalary() << '\n'
+                << item->getAddress() << '\n'
+                << item->getPhone() << '\n';
+        }
+        else if (const Car* item =
+            dynamic_cast<const Car*>(&object)) {
+
+            out << "Car\n"
+                << item->getBrand() << '\n'
+                << item->getModel() << '\n'
+                << item->getPlate() << '\n';
+        }
+        else {
+            throw std::runtime_error(
+                "Неизвестный тип объекта."
+            );
+        }
     }
 
     out.close();
@@ -194,58 +274,84 @@ void Keeper::load(const std::string& path) {
         );
     }
 
-    std::string header;
-    long long count = 0;
-
-    if (!(in >> header >> count)
-        || header != "FACTORY_LAB6_V1"
-        || count < 0
-        || count > 2147483647LL) {
-        throw std::runtime_error(
-            "Неверный заголовок файла или количество объектов."
-        );
-    }
-
     Keeper temp;
+    std::string type;
+    bool firstLine = true;
 
-    for (long long i = 0; i < count; ++i) {
-        std::string type;
+    while (std::getline(in, type)) {
+        // Поддержка UTF-8 как с BOM, так и без него.
+        if (firstLine) {
+            if (type.compare(0, 3, "\xEF\xBB\xBF") == 0) {
+                type.erase(0, 3);
+            }
 
-        if (!(in >> type)) {
-            throw std::runtime_error(
-                "Не удалось прочитать тип объекта."
-            );
+            firstLine = false;
+        }
+
+        if (!type.empty() && type.back() == '\r') {
+            type.pop_back();
+        }
+
+        // Между объектами разрешены пустые строки.
+        if (type.find_first_not_of(" \t") == std::string::npos) {
+            continue;
         }
 
         std::unique_ptr<Factory> item;
 
         if (type == "Furniture") {
-            item.reset(new Furniture());
+            std::string name = readField(in);
+            double height = readNumber(in);
+            double width = readNumber(in);
+            double depth = readNumber(in);
+            std::string color = readField(in);
+            std::string material = readField(in);
+            double cost = readNumber(in);
+
+            item.reset(
+                new Furniture(
+                    name,
+                    height,
+                    width,
+                    depth,
+                    color,
+                    material,
+                    cost
+                )
+            );
         }
         else if (type == "Worker") {
-            item.reset(new Worker());
+            std::string name = readField(in);
+            std::string position = readField(in);
+            double salary = readNumber(in);
+            std::string address = readField(in);
+            std::string phone = readField(in);
+
+            item.reset(
+                new Worker(name, position, salary, address, phone)
+            );
         }
         else if (type == "Car") {
-            item.reset(new Car());
+            std::string brand = readField(in);
+            std::string model = readField(in);
+            std::string plate = readField(in);
+
+            item.reset(new Car(brand, model, plate));
         }
         else {
             throw std::runtime_error(
-                "В файле указан неизвестный тип объекта."
+                "Неизвестный тип в файле: " + type
             );
         }
 
-        item->load(in);
-        temp.add(*item);
+        temp.addOwned(std::move(item));
     }
 
-    in >> std::ws;
-
-    if (!in.eof()) {
-        throw std::runtime_error(
-            "В конце файла обнаружены лишние данные."
-        );
+    if (in.bad()) {
+        throw std::runtime_error("Ошибка чтения файла.");
     }
 
+    // Заменяем текущий список только после успешного чтения.
     swap(temp);
 }
 
